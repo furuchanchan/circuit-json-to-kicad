@@ -247,6 +247,11 @@ export class AddFootprintsStage extends ConverterStage<CircuitJson, KicadPcb> {
           (pad: any) => pad.pcb_component_id === component.pcb_component_id,
         ) || []
 
+    // Pad numbers must be unique within one footprint — a shared number
+    // tells KiCad the pads are the same electrical pin (#535). SMT pads and
+    // plated holes contribute pads to the same footprint, so both
+    // converters share one claimed-number set.
+    const usedPadNumbers = new Set<string>()
     const { pads: smdPads, nextPadNumber } = convertSmdPads(
       {
         pcbPads,
@@ -254,6 +259,7 @@ export class AddFootprintsStage extends ConverterStage<CircuitJson, KicadPcb> {
         componentRotation: component.rotation || 0,
         componentId: component.pcb_component_id,
         startPadNumber: 1,
+        usedPadNumbers,
         getNetInfo,
       },
       this.ctx,
@@ -274,6 +280,7 @@ export class AddFootprintsStage extends ConverterStage<CircuitJson, KicadPcb> {
         componentRotation: component.rotation || 0,
         componentId: component.pcb_component_id,
         startPadNumber: nextPadNumber,
+        usedPadNumbers,
         getNetInfo,
       },
       this.ctx,
