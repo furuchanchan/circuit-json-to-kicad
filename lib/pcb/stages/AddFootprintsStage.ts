@@ -11,7 +11,7 @@ import {
   getKicadCompatibleComponentName,
 } from "../../utils/getKicadCompatibleComponentName"
 import type { KicadPcb } from "kicadts"
-import { Footprint, FootprintModel } from "kicadts"
+import { Footprint, FootprintAttr, FootprintModel } from "kicadts"
 import {
   MODEL_CDN_BASE_URL,
   getBasename,
@@ -296,6 +296,23 @@ export class AddFootprintsStage extends ConverterStage<CircuitJson, KicadPcb> {
     fpPads.push(...npthPads)
 
     footprint.fpPads = fpPads
+
+    // KiCad requires every physical footprint to declare a type, otherwise
+    // it is classed as a virtual model. Infer it from the pads the same way
+    // ExtractFootprintsStage.sanitizeFootprint does; explicit
+    // kicad_footprint metadata applied later still wins. (#585)
+    if (!footprint.attr) {
+      const padTypes = fpPads.map((pad) => pad.padType)
+      const attr = new FootprintAttr()
+      if (padTypes.includes("thru_hole")) {
+        attr.type = "through_hole"
+      } else if (padTypes.includes("smd")) {
+        attr.type = "smd"
+      }
+      if (attr.type) {
+        footprint.attr = attr
+      }
+    }
 
     // Convert circles
     const pcbSilkscreenCircles =
