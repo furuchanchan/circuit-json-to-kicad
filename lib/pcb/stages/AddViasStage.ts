@@ -1,6 +1,6 @@
 import type { CircuitJson } from "circuit-json"
 import type { KicadPcb } from "kicadts"
-import { Via, ViaNet } from "kicadts"
+import { Via, ViaNet, ViaTenting } from "kicadts"
 import {
   ConverterStage,
   type ConverterContext,
@@ -26,6 +26,9 @@ type ViaLike = {
   source_net_id?: string
   subcircuit_connectivity_map_key?: string
   connection_name?: string
+  is_tented?: boolean
+  tented_on_top?: boolean
+  tented_on_bottom?: boolean
 }
 
 /**
@@ -226,6 +229,7 @@ export class AddViasStage extends ConverterStage<CircuitJson, KicadPcb> {
       drill: viaDrill,
       layers: viaLayers,
       net: new ViaNet(netInfo?.id ?? 0),
+      tenting: this.getViaTenting(via),
       uuid: generateDeterministicUuid(viaData),
     })
 
@@ -235,6 +239,24 @@ export class AddViasStage extends ConverterStage<CircuitJson, KicadPcb> {
     kicadPcb.vias = vias
 
     this.viasProcessed++
+  }
+
+  private getViaTenting(via: ViaLike): ViaTenting | undefined {
+    const { is_tented, tented_on_top, tented_on_bottom } = via
+    if (
+      is_tented === undefined &&
+      tented_on_top === undefined &&
+      tented_on_bottom === undefined
+    ) {
+      return undefined
+    }
+
+    const sides: string[] = []
+    if (is_tented === true || tented_on_top === true) sides.push("front")
+    if (is_tented === true || tented_on_bottom === true) sides.push("back")
+    // KiCad reads bare side names as a legacy tenting format; "none" is how
+    // it marks a via explicitly untented.
+    return new ViaTenting(sides.length > 0 ? sides : ["none"])
   }
 
   override getOutput(): KicadPcb {

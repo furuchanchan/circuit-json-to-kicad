@@ -43,6 +43,21 @@ export class InitializePcbStage extends ConverterStage<CircuitJson, KicadPcb> {
     // Add setup section with basic design rules
     const setup = new Setup()
     setup.padToMaskClearance = 0.0
+
+    // Board-level via tenting defaults become the setup tenting rule
+    const boardTenting = pcbBoard as {
+      default_via_tented_on_top?: boolean
+      default_via_tented_on_bottom?: boolean
+    }
+    const tentedOnTop = boardTenting?.default_via_tented_on_top
+    const tentedOnBottom = boardTenting?.default_via_tented_on_bottom
+    if (tentedOnTop !== undefined || tentedOnBottom !== undefined) {
+      const sides: string[] = []
+      if (tentedOnTop) sides.push("front")
+      if (tentedOnBottom) sides.push("back")
+      setup.tenting = sides.length > 0 ? sides : ["none"]
+    }
+
     kicadPcb.setup = setup
 
     // Initialize PCB layers based on number of copper layers
