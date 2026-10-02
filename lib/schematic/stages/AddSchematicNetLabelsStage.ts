@@ -17,6 +17,7 @@ import { applyToPoint } from "transformation-matrix"
 import { ConverterStage } from "../../types"
 import { symbols } from "schematic-symbols"
 import { calculatePinPosition } from "./utils/calculatePinPosition"
+import { sanitizePowerSymbolName } from "./utils/sanitizePowerSymbolName"
 
 /**
  * Adds schematic net labels to the schematic
@@ -29,6 +30,10 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
   CircuitJson,
   KicadSch
 > {
+  // #PWR reference sequence, shared by every power-symbol instance so each
+  // rail gets a unique annotation (#595).
+  private powerRefCounter = 0
+
   override _step(): void {
     const { kicadSch, db } = this.ctx
 
@@ -44,6 +49,8 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
       this.finished = true
       return
     }
+
+    this.powerRefCounter = 0
 
     const symbols: SchematicSymbol[] = []
     const globalLabels: GlobalLabel[] = []
@@ -123,6 +130,15 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
       y += pinPosition.y
     }
 
+    // A power/ground label maps to the `power:<net name>` lib symbol
+    // emitted by AddLibrarySymbolsStage; its hidden power pin is named
+    // after the net, which is what joins the rails into one KiCad net.
+    const sourceNet = netLabel.source_net_id
+      ? this.ctx.db.source_net.get(netLabel.source_net_id)
+      : null
+    const netName = sourceNet?.name || labelText
+    const isPowerOrGround = Boolean(sourceNet?.is_power || sourceNet?.is_ground)
+
     const uuid = crypto.randomUUID()
 
     const symbol = new SchematicSymbol({
@@ -136,8 +152,13 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
       fieldsAutoplaced: false,
     })
 
-    // Use Custom library for schematic-symbols symbols
-    const libId = `Custom:${symbolName}`
+    const reference = isPowerOrGround
+      ? `#PWR${String(++this.powerRefCounter).padStart(2, "0")}`
+      : labelText
+
+    const libId = isPowerOrGround
+      ? `power:${sanitizePowerSymbolName(netName)}`
+      : `Custom:${symbolName}`
     const symLibId = new SymbolLibId(libId)
     ;(symbol as any)._sxLibId = symLibId
 
@@ -149,7 +170,7 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
     // Add properties
     const referenceProperty = new SymbolProperty({
       key: "Reference",
-      value: labelText, // Use the label text as the reference
+      value: reference,
       id: 0,
       at: [x, y + referenceOffset, 0],
       effects: this.createTextEffects(1.27, false),
@@ -157,10 +178,10 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
 
     const valueProperty = new SymbolProperty({
       key: "Value",
-      value: labelText,
+      value: isPowerOrGround ? netName : labelText,
       id: 1,
       at: [x, y + valueOffset, 0],
-      effects: this.createTextEffects(1.27, true),
+      effects: this.createTextEffects(1.27, isPowerOrGround ? false : true),
     })
 
     const footprintProperty = new SymbolProperty({
@@ -208,7 +229,7 @@ export class AddSchematicNetLabelsStage extends ConverterStage<
     const instancePathPrefix =
       this.ctx.symbolInstancePathPrefix ?? `/${kicadSch?.uuid?.value || ""}`
     const path = new SymbolInstancePath(instancePathPrefix)
-    path.reference = labelText
+    path.reference = reference
     path.unit = 1
     project.paths.push(path)
     instances.projects.push(project)

@@ -162,6 +162,7 @@ export function createPinSubsymbol({
   schematicPorts,
   sourcePorts,
   c2kMatSchScale,
+  powerNetName,
 }: {
   libId: string
   symbolData: SymbolData
@@ -170,6 +171,9 @@ export function createPinSubsymbol({
   schematicPorts: SchematicPort[]
   sourcePorts: SourcePort[]
   c2kMatSchScale: number
+  /** When set, pins are emitted as hidden power_in pins named after the net
+   * (KiCad joins instances into one power net by the pin name). */
+  powerNetName?: string
 }): SchematicSymbol {
   const pinSymbol = new SchematicSymbol({
     libraryId: `${libId.split(":")[1]}_1_1`,
@@ -194,7 +198,7 @@ export function createPinSubsymbol({
 
   for (const [i, port] of symbolData.ports.entries()) {
     const pin = new SymbolPin()
-    pin.pinElectricalType = "passive"
+    pin.pinElectricalType = powerNetName ? "power_in" : "passive"
     pin.pinGraphicStyle = "line"
 
     const { x, y, angle } = calculatePinPosition({
@@ -213,12 +217,16 @@ export function createPinSubsymbol({
     const nameFont = new TextEffectsFont()
     nameFont.size = { height: 1.27, width: 1.27 }
     const nameEffects = new TextEffects({ font: nameFont })
-    const pinName = port.labels?.[0] || "~"
+    const pinName = powerNetName ?? port.labels?.[0] ?? "~"
     pin._sxName = new SymbolPinName({ value: pinName, effects: nameEffects })
 
     const numFont = new TextEffectsFont()
     numFont.size = { height: 1.27, width: 1.27 }
     const numEffects = new TextEffects({ font: numFont })
+    if (powerNetName) {
+      // KiCad's own power symbols hide the pin number
+      numEffects.hiddenText = true
+    }
     const pinNum =
       port.pinNumber?.toString() ?? circuitPinNumbers.get(i) ?? `${i + 1}`
     pin._sxNumber = new SymbolPinNumber({

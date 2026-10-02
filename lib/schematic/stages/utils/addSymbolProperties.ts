@@ -12,6 +12,7 @@ export function addSymbolProperties({
   fpFilters,
   footprintRef = "",
   referencePrefix,
+  valueOverride,
 }: {
   symbol: SchematicSymbol
   libId: string
@@ -20,6 +21,9 @@ export function addSymbolProperties({
   fpFilters: string
   footprintRef?: string
   referencePrefix?: string
+  /** Value property text; defaults to the reference prefix. Power symbols
+   * carry the net name here while the Reference stays '#PWR'. */
+  valueOverride?: string
 }): void {
   const refPrefix = referencePrefix || libId.split(":")[1]?.[0] || "U"
 
@@ -31,7 +35,13 @@ export function addSymbolProperties({
       at: [2.032, 0, 90],
       hide: false,
     },
-    { key: "Value", value: refPrefix, id: 1, at: [0, 0, 90], hide: false },
+    {
+      key: "Value",
+      value: valueOverride ?? refPrefix,
+      id: 1,
+      at: [0, 0, 90],
+      hide: false,
+    },
     {
       key: "Footprint",
       value: footprintRef,

@@ -12,6 +12,7 @@ import {
   SchematicSymbol,
   SymbolPinNames,
   SymbolPinNumbers,
+  SymbolPower,
 } from "kicadts"
 import { symbols } from "schematic-symbols"
 import { ConverterStage } from "../../types"
@@ -29,6 +30,7 @@ import { createDrawingSubsymbol } from "./symbols-stage-converters/createDrawing
 import { createGenericChipSymbolData } from "./symbols-stage-converters/createGenericChipSymbolData"
 import { addSymbolProperties } from "./utils/addSymbolProperties"
 import { createPinSubsymbol } from "./utils/createPinSubsymbol"
+import { sanitizePowerSymbolName } from "./utils/sanitizePowerSymbolName"
 
 /**
  * Adds library symbol definitions from schematic-symbols to the lib_symbols section.
@@ -78,6 +80,7 @@ export class AddLibrarySymbolsStage extends ConverterStage<
             netLabel,
             isPower: isPower ?? false,
             isGround: isGround ?? false,
+            netName: this.netLabelNetName(netLabel),
           })
           if (libSymbol) {
             librarySymbols.push(libSymbol)
@@ -269,16 +272,36 @@ export class AddLibrarySymbolsStage extends ConverterStage<
   }
 
   /**
-   * Create library symbol for a schematic net label with symbol_name
+   * The name of the net a schematic_net_label marks: the source net's name
+   * when resolvable, else the label text.
+   */
+  private netLabelNetName(netLabel: SchematicNetLabel): string {
+    const { db } = this.ctx
+    const sourceNet = netLabel.source_net_id
+      ? db.source_net.get(netLabel.source_net_id)
+      : null
+    return sourceNet?.name || netLabel.text || ""
+  }
+
+  /**
+   * Create library symbol for a schematic net label with symbol_name.
+   *
+   * Power/ground net labels become KiCad power symbols: a `(power)` lib
+   * symbol per net (`power:<net name>`) whose hidden `power_in` pin is
+   * named after the net, so KiCad joins every instance of the net's rail
+   * symbols into a single net and keeps them out of the netlist as
+   * components (#595).
    */
   private createLibrarySymbolForNetLabel({
     netLabel,
     isPower,
     isGround,
+    netName,
   }: {
     netLabel: SchematicNetLabel
     isPower: boolean
     isGround: boolean
+    netName: string
   }): SchematicSymbol | null {
     const symbolName = netLabel.symbol_name
     if (!symbolName) return null
@@ -286,7 +309,9 @@ export class AddLibrarySymbolsStage extends ConverterStage<
     const symbolData = symbols[symbolName as keyof typeof symbols]
     if (!symbolData) return null
 
-    const libId = `Custom:${symbolName}`
+    const libId = `power:${sanitizePowerSymbolName(netName)}`
+    if (this.processedSymbolNames.has(libId)) return null
+    this.processedSymbolNames.add(libId)
 
     return this.createLibrarySymbol({
       libId,
@@ -300,7 +325,12 @@ export class AddLibrarySymbolsStage extends ConverterStage<
           : "Net symbol",
       keywords: isPower ? "power net" : isGround ? "ground net" : "net",
       fpFilters: "",
-      referencePrefix: libId.split(":")[1]?.[0] || "U",
+      referencePrefix: "#PWR",
+      valueOverride: netName,
+      inBom: false,
+      onBoard: false,
+      power: true,
+      powerNetName: netName,
       symbolScale: this.ctx.kicadSchematicScaleFactor!,
     })
   }
@@ -334,6 +364,11 @@ export class AddLibrarySymbolsStage extends ConverterStage<
     fpFilters,
     footprintRef = "",
     referencePrefix,
+    valueOverride,
+    inBom = true,
+    onBoard = true,
+    power = false,
+    powerNetName,
     symbolScale,
   }: {
     libId: string
@@ -346,14 +381,23 @@ export class AddLibrarySymbolsStage extends ConverterStage<
     fpFilters: string
     footprintRef?: string
     referencePrefix?: string
+    valueOverride?: string
+    inBom?: boolean
+    onBoard?: boolean
+    power?: boolean
+    powerNetName?: string
     symbolScale: number
   }): SchematicSymbol {
     const symbol = new SchematicSymbol({
       libraryId: libId,
       excludeFromSim: false,
-      inBom: true,
-      onBoard: true,
+      inBom,
+      onBoard,
     })
+
+    if (power) {
+      symbol._sxPower = new SymbolPower()
+    }
 
     // Setup pin numbers
     const pinNumbers = new SymbolPinNumbers()
@@ -377,6 +421,7 @@ export class AddLibrarySymbolsStage extends ConverterStage<
       fpFilters,
       footprintRef,
       referencePrefix,
+      valueOverride,
     })
 
     // Create drawing subsymbol (unit 0, 1)
@@ -397,6 +442,7 @@ export class AddLibrarySymbolsStage extends ConverterStage<
       schematicPorts: this.ctx.db.schematic_port.list(),
       sourcePorts: this.ctx.db.source_port.list(),
       c2kMatSchScale: symbolScale,
+      powerNetName,
     })
     symbol.subSymbols.push(pinSymbol)
 
